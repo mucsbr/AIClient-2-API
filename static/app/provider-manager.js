@@ -1577,6 +1577,7 @@ function showKiroAwsImportModal() {
 /**
  * 显示 amq2api 同步模态框
  * 从远程 amq2api 服务器同步 Kiro 账号
+ * 两步流程：1. 获取账号列表并让用户选择  2. 同步选中的账号
  */
 function showAmq2ApiSyncModal() {
     const modal = document.createElement('div');
@@ -1584,45 +1585,70 @@ function showAmq2ApiSyncModal() {
     modal.style.display = 'flex';
 
     modal.innerHTML = `
-        <div class="modal-content" style="max-width: 650px;">
+        <div class="modal-content" style="max-width: 750px;">
             <div class="modal-header">
                 <h3><i class="fas fa-sync-alt"></i> <span data-i18n="oauth.kiro.amq2apiSync">${t('oauth.kiro.amq2apiSync')}</span></h3>
                 <button class="modal-close">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="amq2api-sync-instructions" style="margin-bottom: 16px; padding: 12px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px;">
-                    <p style="margin: 0; font-size: 14px; color: #4338ca;">
-                        <i class="fas fa-info-circle"></i>
-                        <span data-i18n="oauth.kiro.amq2apiSyncInstructions">${t('oauth.kiro.amq2apiSyncInstructions')}</span>
-                    </p>
-                </div>
+                <!-- 步骤1: 输入服务器信息 -->
+                <div id="amq2apiStep1">
+                    <div class="amq2api-sync-instructions" style="margin-bottom: 16px; padding: 12px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px;">
+                        <p style="margin: 0; font-size: 14px; color: #4338ca;">
+                            <i class="fas fa-info-circle"></i>
+                            <span data-i18n="oauth.kiro.amq2apiSyncInstructions">${t('oauth.kiro.amq2apiSyncInstructions')}</span>
+                        </p>
+                    </div>
 
-                <div class="form-group" style="margin-bottom: 16px;">
-                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">
-                        <i class="fas fa-server"></i> <span data-i18n="oauth.kiro.amq2apiUrl">${t('oauth.kiro.amq2apiUrl')}</span>
-                    </label>
-                    <input type="text" id="amq2apiUrl" class="form-control"
-                           placeholder="http://example.com:12380"
-                           style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
-                    <small style="display: block; margin-top: 4px; color: #6b7280; font-size: 12px;">
-                        <span data-i18n="oauth.kiro.amq2apiUrlHint">${t('oauth.kiro.amq2apiUrlHint')}</span>
-                    </small>
-                </div>
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">
+                            <i class="fas fa-server"></i> <span data-i18n="oauth.kiro.amq2apiUrl">${t('oauth.kiro.amq2apiUrl')}</span>
+                        </label>
+                        <input type="text" id="amq2apiUrl" class="form-control"
+                               placeholder="http://example.com:12380"
+                               style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
+                        <small style="display: block; margin-top: 4px; color: #6b7280; font-size: 12px;">
+                            <span data-i18n="oauth.kiro.amq2apiUrlHint">${t('oauth.kiro.amq2apiUrlHint')}</span>
+                        </small>
+                    </div>
 
-                <div class="form-group" style="margin-bottom: 16px;">
-                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">
-                        <i class="fas fa-key"></i> <span data-i18n="oauth.kiro.amq2apiAdminKey">${t('oauth.kiro.amq2apiAdminKey')}</span>
-                    </label>
-                    <div style="position: relative;">
-                        <input type="password" id="amq2apiAdminKey" class="form-control"
-                               placeholder="sk-xxxxx"
-                               style="width: 100%; padding: 10px 40px 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
-                        <button type="button" class="password-toggle" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #6b7280;">
-                            <i class="fas fa-eye"></i>
-                        </button>
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">
+                            <i class="fas fa-key"></i> <span data-i18n="oauth.kiro.amq2apiAdminKey">${t('oauth.kiro.amq2apiAdminKey')}</span>
+                        </label>
+                        <div style="position: relative;">
+                            <input type="password" id="amq2apiAdminKey" class="form-control"
+                                   placeholder="sk-xxxxx"
+                                   style="width: 100%; padding: 10px 40px 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
+                            <button type="button" class="password-toggle" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #6b7280;">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
+                <!-- 步骤2: 账号选择列表 -->
+                <div id="amq2apiStep2" style="display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div>
+                            <span id="amq2apiAccountStats" style="font-size: 14px; color: #374151;"></span>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button type="button" id="amq2apiSelectAll" class="btn btn-sm" style="padding: 4px 12px; font-size: 12px;">
+                                ${t('oauth.kiro.selectAll')}
+                            </button>
+                            <button type="button" id="amq2apiSelectNone" class="btn btn-sm" style="padding: 4px 12px; font-size: 12px;">
+                                ${t('oauth.kiro.selectNone')}
+                            </button>
+                            <button type="button" id="amq2apiSelectEnabled" class="btn btn-sm btn-primary" style="padding: 4px 12px; font-size: 12px;">
+                                ${t('oauth.kiro.selectEnabled')}
+                            </button>
+                        </div>
+                    </div>
+                    <div id="amq2apiAccountList" style="max-height: 350px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px;"></div>
+                </div>
+
+                <!-- 同步进度 -->
                 <div id="amq2apiSyncProgress" style="display: none; margin-top: 16px;">
                     <div style="display: flex; align-items: center; gap: 12px;">
                         <i class="fas fa-spinner fa-spin" style="color: #6366f1;"></i>
@@ -1633,13 +1659,21 @@ function showAmq2ApiSyncModal() {
                     </div>
                 </div>
 
+                <!-- 同步结果 -->
                 <div id="amq2apiSyncResult" style="display: none; margin-top: 16px; padding: 12px; border-radius: 8px; max-height: 300px; overflow-y: auto;"></div>
             </div>
             <div class="modal-footer">
                 <button class="modal-cancel" data-i18n="modal.provider.cancel">${t('modal.provider.cancel')}</button>
-                <button class="btn btn-primary amq2api-sync-submit" id="amq2apiSyncSubmit">
+                <button id="amq2apiBackBtn" class="btn btn-secondary" style="display: none;">
+                    <i class="fas fa-arrow-left"></i> ${t('oauth.kiro.back')}
+                </button>
+                <button class="btn btn-primary" id="amq2apiFetchBtn">
+                    <i class="fas fa-download"></i>
+                    <span>${t('oauth.kiro.amq2apiFetchAccounts')}</span>
+                </button>
+                <button class="btn btn-primary" id="amq2apiSyncBtn" style="display: none;">
                     <i class="fas fa-sync-alt"></i>
-                    <span data-i18n="oauth.kiro.amq2apiStartSync">${t('oauth.kiro.amq2apiStartSync')}</span>
+                    <span>${t('oauth.kiro.amq2apiStartSync')}</span>
                 </button>
             </div>
         </div>
@@ -1647,33 +1681,77 @@ function showAmq2ApiSyncModal() {
 
     document.body.appendChild(modal);
 
+    // 元素引用
+    const step1 = modal.querySelector('#amq2apiStep1');
+    const step2 = modal.querySelector('#amq2apiStep2');
+    const urlInput = modal.querySelector('#amq2apiUrl');
+    const adminKeyInput = modal.querySelector('#amq2apiAdminKey');
+    const fetchBtn = modal.querySelector('#amq2apiFetchBtn');
+    const syncBtn = modal.querySelector('#amq2apiSyncBtn');
+    const backBtn = modal.querySelector('#amq2apiBackBtn');
+    const accountList = modal.querySelector('#amq2apiAccountList');
+    const accountStats = modal.querySelector('#amq2apiAccountStats');
+    const progressDiv = modal.querySelector('#amq2apiSyncProgress');
+    const progressBar = modal.querySelector('#amq2apiSyncProgressBar');
+    const statusText = modal.querySelector('#amq2apiSyncStatus');
+    const resultDiv = modal.querySelector('#amq2apiSyncResult');
+
+    let allAccounts = []; // 存储获取的账号列表
+
     // 密码显示/隐藏切换
     const passwordToggle = modal.querySelector('.password-toggle');
-    const adminKeyInput = modal.querySelector('#amq2apiAdminKey');
     passwordToggle.addEventListener('click', () => {
         const type = adminKeyInput.type === 'password' ? 'text' : 'password';
         adminKeyInput.type = type;
         passwordToggle.innerHTML = `<i class="fas fa-eye${type === 'password' ? '' : '-slash'}"></i>`;
     });
 
-    // 关闭按钮事件
-    const closeBtn = modal.querySelector('.modal-close');
-    const cancelBtn = modal.querySelector('.modal-cancel');
-    [closeBtn, cancelBtn].forEach(btn => {
-        btn.addEventListener('click', () => {
-            modal.remove();
-        });
+    // 关闭按钮
+    modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
+    modal.querySelector('.modal-cancel').addEventListener('click', () => modal.remove());
+
+    // 返回按钮
+    backBtn.addEventListener('click', () => {
+        step1.style.display = 'block';
+        step2.style.display = 'none';
+        fetchBtn.style.display = 'inline-flex';
+        syncBtn.style.display = 'none';
+        backBtn.style.display = 'none';
+        resultDiv.style.display = 'none';
+        progressDiv.style.display = 'none';
     });
 
-    // 开始同步按钮事件
-    const submitBtn = modal.querySelector('#amq2apiSyncSubmit');
-    const urlInput = modal.querySelector('#amq2apiUrl');
-    const progressDiv = modal.querySelector('#amq2apiSyncProgress');
-    const progressBar = modal.querySelector('#amq2apiSyncProgressBar');
-    const statusText = modal.querySelector('#amq2apiSyncStatus');
-    const resultDiv = modal.querySelector('#amq2apiSyncResult');
+    // 更新选中统计
+    const updateStats = () => {
+        const checkboxes = accountList.querySelectorAll('input[type="checkbox"]');
+        const checked = accountList.querySelectorAll('input[type="checkbox"]:checked');
+        accountStats.textContent = t('oauth.kiro.amq2apiSelectedStats', { selected: checked.length, total: checkboxes.length });
+        syncBtn.disabled = checked.length === 0;
+    };
 
-    submitBtn.addEventListener('click', async () => {
+    // 全选
+    modal.querySelector('#amq2apiSelectAll').addEventListener('click', () => {
+        accountList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+        updateStats();
+    });
+
+    // 全不选
+    modal.querySelector('#amq2apiSelectNone').addEventListener('click', () => {
+        accountList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+        updateStats();
+    });
+
+    // 只选启用的
+    modal.querySelector('#amq2apiSelectEnabled').addEventListener('click', () => {
+        accountList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            const enabled = cb.dataset.enabled === 'true';
+            cb.checked = enabled;
+        });
+        updateStats();
+    });
+
+    // 获取账号列表
+    fetchBtn.addEventListener('click', async () => {
         const baseUrl = urlInput.value.trim();
         const adminKey = adminKeyInput.value.trim();
 
@@ -1687,23 +1765,112 @@ function showAmq2ApiSyncModal() {
             return;
         }
 
-        // 显示进度
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> <span>${t('oauth.kiro.amq2apiSyncing')}</span>`;
-        progressDiv.style.display = 'block';
-        resultDiv.style.display = 'none';
-        progressBar.style.width = '0%';
-        statusText.textContent = t('oauth.kiro.amq2apiFetching');
+        fetchBtn.disabled = true;
+        fetchBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> <span>${t('oauth.kiro.amq2apiFetching')}</span>`;
 
         try {
-            // 使用 SSE 流式接收进度
-            const response = await fetch('/api/kiro/sync-from-amq2api', {
+            const response = await fetch('/api/kiro/fetch-amq2api-accounts', {
                 method: 'POST',
                 headers: {
                     ...window.apiClient.getAuthHeaders(),
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ baseUrl, adminKey })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+
+            allAccounts = data.accounts;
+
+            if (allAccounts.length === 0) {
+                showToast(t('common.warning'), t('oauth.kiro.amq2apiNoAccounts'), 'warning');
+                return;
+            }
+
+            // 渲染账号列表
+            accountList.innerHTML = allAccounts.map((acc, index) => `
+                <label style="display: flex; align-items: center; padding: 10px 12px; border-bottom: 1px solid #f3f4f6; cursor: pointer; ${acc.enabled ? '' : 'background: #fef2f2;'}">
+                    <input type="checkbox"
+                           data-index="${index}"
+                           data-enabled="${acc.enabled}"
+                           ${acc.enabled ? 'checked' : ''}
+                           style="margin-right: 12px; width: 16px; height: 16px;">
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="font-weight: 500; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            ${acc.label || acc.id || 'Unknown'}
+                        </div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 2px;">
+                            ${acc.enabled
+                                ? `<span style="color: #10b981;"><i class="fas fa-check-circle"></i> ${t('oauth.kiro.enabled')}</span>`
+                                : `<span style="color: #ef4444;"><i class="fas fa-times-circle"></i> ${t('oauth.kiro.disabled')}</span>`
+                            }
+                            ${acc.last_refresh_status ? ` · ${t('oauth.kiro.lastRefresh')}: ${acc.last_refresh_status}` : ''}
+                        </div>
+                    </div>
+                </label>
+            `).join('');
+
+            // 添加复选框事件
+            accountList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                cb.addEventListener('change', updateStats);
+            });
+
+            // 切换到步骤2
+            step1.style.display = 'none';
+            step2.style.display = 'block';
+            fetchBtn.style.display = 'none';
+            syncBtn.style.display = 'inline-flex';
+            backBtn.style.display = 'inline-flex';
+            updateStats();
+
+        } catch (error) {
+            console.error('Fetch accounts failed:', error);
+            showToast(t('common.error'), error.message, 'error');
+        } finally {
+            fetchBtn.disabled = false;
+            fetchBtn.innerHTML = `<i class="fas fa-download"></i> <span>${t('oauth.kiro.amq2apiFetchAccounts')}</span>`;
+        }
+    });
+
+    // 开始同步选中的账号
+    syncBtn.addEventListener('click', async () => {
+        const baseUrl = urlInput.value.trim();
+        const adminKey = adminKeyInput.value.trim();
+
+        // 获取选中的账号索引
+        const selectedIndexes = [];
+        accountList.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+            selectedIndexes.push(parseInt(cb.dataset.index));
+        });
+
+        if (selectedIndexes.length === 0) {
+            showToast(t('common.warning'), t('oauth.kiro.amq2apiNoSelected'), 'warning');
+            return;
+        }
+
+        // 获取选中的账号数据
+        const selectedAccounts = selectedIndexes.map(i => allAccounts[i]);
+
+        syncBtn.disabled = true;
+        backBtn.disabled = true;
+        syncBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> <span>${t('oauth.kiro.amq2apiSyncing')}</span>`;
+        progressDiv.style.display = 'block';
+        resultDiv.style.display = 'none';
+        progressBar.style.width = '0%';
+        statusText.textContent = t('oauth.kiro.amq2apiImporting', { current: 0, total: selectedAccounts.length });
+
+        try {
+            const response = await fetch('/api/kiro/sync-from-amq2api', {
+                method: 'POST',
+                headers: {
+                    ...window.apiClient.getAuthHeaders(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ baseUrl, adminKey, accounts: selectedAccounts })
             });
 
             if (!response.ok) {
@@ -1717,7 +1884,7 @@ function showAmq2ApiSyncModal() {
             let successCount = 0;
             let failedCount = 0;
             let duplicateCount = 0;
-            let totalCount = 0;
+            let totalCount = selectedAccounts.length;
             const results = [];
 
             while (true) {
@@ -1735,7 +1902,6 @@ function showAmq2ApiSyncModal() {
 
                             if (data.event === 'start') {
                                 totalCount = data.total;
-                                statusText.textContent = t('oauth.kiro.amq2apiFoundAccounts', { count: totalCount });
                             } else if (data.event === 'progress') {
                                 const progress = Math.round((data.index / totalCount) * 100);
                                 progressBar.style.width = `${progress}%`;
@@ -1751,7 +1917,6 @@ function showAmq2ApiSyncModal() {
                                 progressBar.style.width = '100%';
                                 statusText.textContent = t('oauth.kiro.amq2apiComplete');
 
-                                // 显示结果
                                 resultDiv.style.display = 'block';
                                 resultDiv.style.background = '#f0fdf4';
                                 resultDiv.style.border = '1px solid #bbf7d0';
@@ -1778,7 +1943,6 @@ function showAmq2ApiSyncModal() {
                                     </div>
                                 `;
 
-                                // 刷新提供商列表
                                 loadProviders();
                                 loadConfigList();
                             } else if (data.event === 'error') {
@@ -1805,8 +1969,9 @@ function showAmq2ApiSyncModal() {
                 </div>
             `;
         } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = `<i class="fas fa-sync-alt"></i> <span data-i18n="oauth.kiro.amq2apiStartSync">${t('oauth.kiro.amq2apiStartSync')}</span>`;
+            syncBtn.disabled = false;
+            backBtn.disabled = false;
+            syncBtn.innerHTML = `<i class="fas fa-sync-alt"></i> <span>${t('oauth.kiro.amq2apiStartSync')}</span>`;
         }
     });
 }

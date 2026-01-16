@@ -313,8 +313,82 @@ export async function handleImportAwsCredentials(req, res) {
 }
 
 /**
+ * 从 amq2api 获取账号列表（预览用）
+ * 返回所有 amazonq 类型的账号，包括 enabled 状态
+ */
+export async function handleFetchAmq2ApiAccounts(req, res) {
+    try {
+        const body = await getRequestBody(req);
+        const { baseUrl, adminKey } = body;
+
+        if (!baseUrl || !adminKey) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'baseUrl and adminKey are required' }));
+            return true;
+        }
+
+        // 规范化 baseUrl
+        let normalizedUrl = baseUrl.trim();
+        if (normalizedUrl.endsWith('/')) {
+            normalizedUrl = normalizedUrl.slice(0, -1);
+        }
+
+        console.log(`[amq2api Fetch] Fetching accounts from: ${normalizedUrl}`);
+
+        const accountsUrl = `${normalizedUrl}/v2/accounts`;
+        const accountsResponse = await fetch(accountsUrl, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'X-Admin-Key': adminKey,
+                'User-Agent': 'AIClient-2-API/1.0.0'
+            }
+        });
+
+        if (!accountsResponse.ok) {
+            const errorText = await accountsResponse.text();
+            throw new Error(`HTTP ${accountsResponse.status}: ${errorText.substring(0, 200)}`);
+        }
+
+        // 检查响应类型
+        const contentType = accountsResponse.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            throw new Error('服务器返回了非 JSON 格式的响应，请检查服务器地址和 Admin Key');
+        }
+
+        const accounts = await accountsResponse.json();
+
+        if (!Array.isArray(accounts)) {
+            throw new Error('Invalid response: expected an array of accounts');
+        }
+
+        // 过滤 amazonq 类型的账号（不过滤 enabled 状态，由前端决定）
+        const amazonqAccounts = accounts.filter(acc => acc.type === 'amazonq');
+
+        console.log(`[amq2api Fetch] Found ${amazonqAccounts.length} amazonq accounts out of ${accounts.length} total`);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            accounts: amazonqAccounts,
+            total: amazonqAccounts.length
+        }));
+        return true;
+
+    } catch (error) {
+        console.error('[amq2api Fetch] Error:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: error.message }));
+        return true;
+    }
+}
+
+/**
  * 从 amq2api 同步 Kiro 账号
  * 通过 SSE 流式返回进度
+ * 支持两种模式：
+ * 1. 传入 accounts 数组：直接使用前端选择的账号列表
+ * 2. 只传入 baseUrl 和 adminKey：自动获取所有启用的账号（向后兼容）
  */
 export async function handleSyncFromAmq2Api(req, res) {
     // 设置 SSE 响应头
@@ -331,7 +405,7 @@ export async function handleSyncFromAmq2Api(req, res) {
 
     try {
         const body = await getRequestBody(req);
-        const { baseUrl, adminKey } = body;
+        const { baseUrl, adminKey, accounts: providedAccounts } = body;
 
         if (!baseUrl || !adminKey) {
             sendSSE('error', { error: 'baseUrl and adminKey are required' });
@@ -339,40 +413,46 @@ export async function handleSyncFromAmq2Api(req, res) {
             return true;
         }
 
-        // 规范化 baseUrl
-        let normalizedUrl = baseUrl.trim();
-        if (normalizedUrl.endsWith('/')) {
-            normalizedUrl = normalizedUrl.slice(0, -1);
-        }
+        let amazonqAccounts;
 
-        console.log(`[amq2api Sync] Fetching accounts from: ${normalizedUrl}`);
-
-        // 获取账号列表
-        const accountsUrl = `${normalizedUrl}/v2/accounts`;
-        const accountsResponse = await fetch(accountsUrl, {
-            method: 'GET',
-            headers: {
-                'Accept': '*/*',
-                'X-Admin-Key': adminKey,
-                'User-Agent': 'AIClient-2-API/1.0.0'
+        // 如果前端提供了账号列表，直接使用
+        if (providedAccounts && Array.isArray(providedAccounts) && providedAccounts.length > 0) {
+            amazonqAccounts = providedAccounts;
+            console.log(`[amq2api Sync] Using ${amazonqAccounts.length} accounts provided by frontend`);
+        } else {
+            // 否则从服务器获取（向后兼容）
+            let normalizedUrl = baseUrl.trim();
+            if (normalizedUrl.endsWith('/')) {
+                normalizedUrl = normalizedUrl.slice(0, -1);
             }
-        });
 
-        if (!accountsResponse.ok) {
-            const errorText = await accountsResponse.text();
-            throw new Error(`Failed to fetch accounts: HTTP ${accountsResponse.status} - ${errorText}`);
+            console.log(`[amq2api Sync] Fetching accounts from: ${normalizedUrl}`);
+
+            const accountsUrl = `${normalizedUrl}/v2/accounts`;
+            const accountsResponse = await fetch(accountsUrl, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Admin-Key': adminKey,
+                    'User-Agent': 'AIClient-2-API/1.0.0'
+                }
+            });
+
+            if (!accountsResponse.ok) {
+                const errorText = await accountsResponse.text();
+                throw new Error(`Failed to fetch accounts: HTTP ${accountsResponse.status} - ${errorText.substring(0, 200)}`);
+            }
+
+            const accounts = await accountsResponse.json();
+
+            if (!Array.isArray(accounts)) {
+                throw new Error('Invalid response: expected an array of accounts');
+            }
+
+            // 只过滤 amazonq 类型且 enabled 为 true 的账号
+            amazonqAccounts = accounts.filter(acc => acc.type === 'amazonq' && (acc.enabled === true || acc.enabled === 'true'));
+            console.log(`[amq2api Sync] Found ${amazonqAccounts.length} enabled amazonq accounts out of ${accounts.length} total`);
         }
-
-        const accounts = await accountsResponse.json();
-
-        if (!Array.isArray(accounts)) {
-            throw new Error('Invalid response: expected an array of accounts');
-        }
-
-        // 只过滤 amazonq 类型且 enabled 为 true 的账号（兼容字符串和布尔值）
-        const amazonqAccounts = accounts.filter(acc => acc.type === 'amazonq' && (acc.enabled === true || acc.enabled === 'true'));
-
-        console.log(`[amq2api Sync] Found ${amazonqAccounts.length} enabled amazonq accounts out of ${accounts.length} total`);
 
         if (amazonqAccounts.length === 0) {
             sendSSE('complete', {
