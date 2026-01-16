@@ -369,8 +369,8 @@ export async function handleSyncFromAmq2Api(req, res) {
             throw new Error('Invalid response: expected an array of accounts');
         }
 
-        // 只过滤 amazonq 类型且 enabled 为 true 的账号
-        const amazonqAccounts = accounts.filter(acc => acc.type === 'amazonq' && acc.enabled === true);
+        // 只过滤 amazonq 类型且 enabled 为 true 的账号（兼容字符串和布尔值）
+        const amazonqAccounts = accounts.filter(acc => acc.type === 'amazonq' && (acc.enabled === true || acc.enabled === 'true'));
 
         console.log(`[amq2api Sync] Found ${amazonqAccounts.length} enabled amazonq accounts out of ${accounts.length} total`);
 
