@@ -313,6 +313,187 @@ export async function handleImportAwsCredentials(req, res) {
 }
 
 /**
+ * 从 amq2api 同步 Kiro 账号
+ * 通过 SSE 流式返回进度
+ */
+export async function handleSyncFromAmq2Api(req, res) {
+    // 设置 SSE 响应头
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no'
+    });
+
+    const sendSSE = (event, data) => {
+        res.write(`data: ${JSON.stringify({ event, ...data })}\n\n`);
+    };
+
+    try {
+        const body = await getRequestBody(req);
+        const { baseUrl, adminKey } = body;
+
+        if (!baseUrl || !adminKey) {
+            sendSSE('error', { error: 'baseUrl and adminKey are required' });
+            res.end();
+            return true;
+        }
+
+        // 规范化 baseUrl
+        let normalizedUrl = baseUrl.trim();
+        if (normalizedUrl.endsWith('/')) {
+            normalizedUrl = normalizedUrl.slice(0, -1);
+        }
+
+        console.log(`[amq2api Sync] Fetching accounts from: ${normalizedUrl}`);
+
+        // 获取账号列表
+        const accountsUrl = `${normalizedUrl}/v2/accounts`;
+        const accountsResponse = await fetch(accountsUrl, {
+            method: 'GET',
+            headers: {
+                'Accept': '*/*',
+                'X-Admin-Key': adminKey,
+                'User-Agent': 'AIClient-2-API/1.0.0'
+            }
+        });
+
+        if (!accountsResponse.ok) {
+            const errorText = await accountsResponse.text();
+            throw new Error(`Failed to fetch accounts: HTTP ${accountsResponse.status} - ${errorText}`);
+        }
+
+        const accounts = await accountsResponse.json();
+
+        if (!Array.isArray(accounts)) {
+            throw new Error('Invalid response: expected an array of accounts');
+        }
+
+        // 只过滤 amazonq 类型的账号
+        const amazonqAccounts = accounts.filter(acc => acc.type === 'amazonq');
+
+        console.log(`[amq2api Sync] Found ${amazonqAccounts.length} amazonq accounts out of ${accounts.length} total`);
+
+        if (amazonqAccounts.length === 0) {
+            sendSSE('complete', {
+                success: true,
+                total: 0,
+                successCount: 0,
+                failedCount: 0,
+                duplicateCount: 0,
+                message: 'No amazonq accounts found'
+            });
+            res.end();
+            return true;
+        }
+
+        sendSSE('start', { total: amazonqAccounts.length });
+
+        const results = {
+            success: 0,
+            failed: 0,
+            duplicate: 0,
+            details: []
+        };
+
+        // 逐个导入账号
+        for (let i = 0; i < amazonqAccounts.length; i++) {
+            const account = amazonqAccounts[i];
+            const progressData = {
+                index: i + 1,
+                total: amazonqAccounts.length,
+                label: account.label || account.id
+            };
+
+            try {
+                // 构建凭据对象
+                const credentials = {
+                    clientId: account.clientId,
+                    clientSecret: account.clientSecret,
+                    accessToken: account.accessToken,
+                    refreshToken: account.refreshToken,
+                    authMethod: 'builder-id',
+                    region: 'us-east-1'
+                };
+
+                // 验证必需字段
+                if (!credentials.clientId || !credentials.clientSecret ||
+                    !credentials.accessToken || !credentials.refreshToken) {
+                    progressData.current = {
+                        success: false,
+                        label: account.label || account.id,
+                        error: 'Missing required fields'
+                    };
+                    results.failed++;
+                    results.details.push(progressData.current);
+                    sendSSE('progress', progressData);
+                    continue;
+                }
+
+                // 调用导入函数
+                const importResult = await importAwsCredentials(credentials);
+
+                if (importResult.success) {
+                    progressData.current = {
+                        success: true,
+                        label: account.label || account.id,
+                        path: importResult.path
+                    };
+                    results.success++;
+                } else if (importResult.error === 'duplicate') {
+                    progressData.current = {
+                        success: false,
+                        duplicate: true,
+                        label: account.label || account.id,
+                        existingPath: importResult.existingPath
+                    };
+                    results.duplicate++;
+                } else {
+                    progressData.current = {
+                        success: false,
+                        label: account.label || account.id,
+                        error: importResult.error
+                    };
+                    results.failed++;
+                }
+                results.details.push(progressData.current);
+
+            } catch (error) {
+                console.error(`[amq2api Sync] Error importing account ${account.label || account.id}:`, error);
+                progressData.current = {
+                    success: false,
+                    label: account.label || account.id,
+                    error: error.message
+                };
+                results.failed++;
+                results.details.push(progressData.current);
+            }
+
+            sendSSE('progress', progressData);
+        }
+
+        // 发送完成事件
+        sendSSE('complete', {
+            success: true,
+            total: amazonqAccounts.length,
+            successCount: results.success,
+            failedCount: results.failed,
+            duplicateCount: results.duplicate,
+            details: results.details
+        });
+
+        console.log(`[amq2api Sync] Complete: ${results.success} success, ${results.duplicate} duplicate, ${results.failed} failed`);
+
+    } catch (error) {
+        console.error('[amq2api Sync] Error:', error);
+        sendSSE('error', { error: error.message });
+    }
+
+    res.end();
+    return true;
+}
+
+/**
  * 导入 Orchids Token
  * 支持三种格式：
  * 1. cookieString 格式 (完整的 Cookie 字符串，包含 __client 和 __session)

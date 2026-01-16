@@ -300,6 +300,11 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
         return await oauthApi.handleImportAwsCredentials(req, res);
     }
 
+    // Sync Kiro accounts from amq2api
+    if (method === 'POST' && pathParam === '/api/kiro/sync-from-amq2api') {
+        return await oauthApi.handleSyncFromAmq2Api(req, res);
+    }
+
     // Import Orchids token
     if (method === 'POST' && pathParam === '/api/orchids/import-token') {
         return await oauthApi.handleImportOrchidsToken(req, res);
